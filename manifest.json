@@ -1,0 +1,64 @@
+{
+  "schemaVersion": 1,
+  "id": "io.github.katla50.nordpool-widget",
+  "name": "Nordpool Strømpris",
+  "version": "1.0.0",
+  "author": "katla50",
+  "license": "MIT",
+  "description": "Nord Pool day-ahead electricity prices in the bar for any Norwegian bidding zone, with a configurable grid tariff (nettleie) and VAT on top, and an hourly panel for today and tomorrow.",
+  "homepage": "https://github.com/katla50/omarchy-nordpool-widget",
+  "repository": "https://github.com/katla50/omarchy-nordpool-widget",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Strømpris",
+    "description": "Current Nord Pool hour price with optional nettleie and mva, plus an hourly panel for today and tomorrow",
+    "category": "Energy",
+    "allowMultiple": false,
+    "defaultSection": "right",
+    "defaults": {
+      "icon": "⚡",
+      "showUnit": true,
+      "compact": false,
+      "colorByLevel": true,
+      "lowColor": "#2ea043",
+      "highColor": ""
+    },
+    "schema": [
+      {
+        "key": "icon",
+        "type": "string",
+        "label": "Glyph shown before the price; empty for none"
+      },
+      {
+        "key": "showUnit",
+        "type": "bool",
+        "label": "Show the unit (øre/kWh) beside the price in the bar"
+      },
+      {
+        "key": "compact",
+        "type": "bool",
+        "label": "Compact price (190 instead of 190.1 øre/kWh)"
+      },
+      {
+        "key": "colorByLevel",
+        "type": "bool",
+        "label": "Colour the price against today's average (cheap/normal/expensive)"
+      },
+      {
+        "key": "lowColor",
+        "type": "string",
+        "label": "Colour for a cheap hour; empty uses the theme accent"
+      },
+      {
+        "key": "highColor",
+        "type": "string",
+        "label": "Colour for an expensive hour; empty uses the theme urgent colour"
+      }
+    ]
+  }
+}
