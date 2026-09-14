@@ -3,6 +3,7 @@
 Day-ahead electricity prices from [Nord Pool](https://www.nordpoolgroup.com/) in
 your Omarchy bar, for any Norwegian bidding zone, with your own nettleie and mva
 added on top. Click the pill for an hourly panel covering today and tomorrow.
+<img width="464" height="1035" alt="screenshot-2026-09-14_12-55-00" src="https://github.com/user-attachments/assets/1b5d4359-01c9-4309-bca3-3a7ae21174cd" />
 
 ```
 ⚡ 190.1 øre
