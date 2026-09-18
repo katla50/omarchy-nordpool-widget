@@ -25,13 +25,13 @@ added on top. Click the pill for an hourly panel covering today and tomorrow.
 
 ## Install
 
-```bash
+```sh
 omarchy plugin add https://github.com/katla50/omarchy-nordpool-widget --enable --yes
 ```
 
 Or manually:
 
-```bash
+```sh
 git clone https://github.com/katla50/omarchy-nordpool-widget \
   ~/.config/omarchy/plugins/io.github.katla50.nordpool-widget
 omarchy-shell shell rescanPlugins
@@ -52,10 +52,37 @@ Both ship with Omarchy, but the plugin will not fetch anything without them:
 No API key and no account are needed — the Nord Pool Data Portal endpoint this
 plugin uses is public.
 
-## Configuration
+## Usage
 
-There are two places to change things, and each setting lives in exactly one of
-them.
+| Action | Result |
+|---|---|
+| Left click the pill | Open the hourly panel |
+| Middle click the pill | Open `config.json` in your editor |
+| Scroll in the panel | Move through the sections |
+| `j` / `k` or Up/Down | Walk the settings rows |
+| `h` / `l` or Left/Right | Adjust the row under the cursor |
+| Enter / Space | Activate the row under the cursor |
+| Tab | Switch to the next bar panel |
+| Escape | Close the panel |
+
+The panel also answers to shell IPC:
+
+```sh
+omarchy-shell shell summon io.github.katla50.nordpool-widget '{}'   # open
+omarchy-shell shell hide io.github.katla50.nordpool-widget          # close
+omarchy-shell shell toggle io.github.katla50.nordpool-widget '{}'   # toggle
+```
+
+## Configure
+
+Move it within the bar:
+
+```sh
+omarchy bar move io.github.katla50.nordpool-widget --section center
+```
+
+There are two places to change settings, and each setting lives in exactly one
+of them.
 
 ### From the panel (writes `~/.config/nordpool-widget/config.json`)
 
@@ -87,6 +114,21 @@ Set through the Omarchy settings UI, or by hand in the widget's layout entry:
 | `lowColor` | `#2ea043` | Colour for a cheap hour |
 | `highColor` | `""` | Colour for an expensive hour; empty uses the theme's urgent colour |
 
+## Remove
+
+```sh
+omarchy plugin remove io.github.katla50.nordpool-widget --yes
+```
+
+That unloads the widget from the bar, removes it from the bar layout in
+`shell.json`, deletes the plugin folder, and stops the price watcher process
+with it. Your settings are left alone: delete them separately if you want a
+clean slate.
+
+```sh
+rm -rf ~/.config/nordpool-widget
+```
+
 ## How the price is calculated
 
 Nord Pool publishes day-ahead prices **per MWh**, so:
@@ -112,27 +154,6 @@ plain spot price too. **The spot price from Nord Pool excludes nettleie, taxes
 and mva**; `forbruksavgift` (elavgift) is not included by this plugin — add it to
 `grid_tariff_ore` if you want it in the total.
 
-## Using it
-
-| Action | Result |
-|---|---|
-| Left click the pill | Open the hourly panel |
-| Middle click the pill | Open `config.json` in your editor |
-| Scroll in the panel | Move through the sections |
-| `j` / `k` or Up/Down | Walk the settings rows |
-| `h` / `l` or Left/Right | Adjust the row under the cursor |
-| Enter / Space | Activate the row under the cursor |
-| Tab | Switch to the next bar panel |
-| Escape | Close the panel |
-
-The panel also answers to shell IPC:
-
-```bash
-omarchy-shell shell summon io.github.katla50.nordpool-widget '{}'   # open
-omarchy-shell shell hide   io.github.katla50.nordpool-widget '{}'   # close
-omarchy-shell shell call   io.github.katla50.nordpool-widget refresh # re-poll now
-```
-
 ## Files
 
 | File | Role |
@@ -149,10 +170,39 @@ omarchy-shell shell call   io.github.katla50.nordpool-widget refresh # re-poll n
 All network access lives in `nordpool-watch.sh`, not in QML. The script polls,
 prints one JSON line per poll on stdout, and `Feed.qml` parses that stream.
 
+## Security and privileges
+
+Omarchy plugins run **unsandboxed inside the long-running shell process with
+your user permissions**, so here is exactly what this one touches.
+
+- **No elevated privileges.** No `sudo`, no `pkexec`, no setuid, no polkit, no
+  system services, no daemons, no udev rules. Nothing is installed outside the
+  plugin folder and `~/.config/nordpool-widget/`.
+- **No second Quickshell process.** The panel and the bar widget run inside the
+  existing shell process, as the plugin contract requires.
+- **One outbound host.** Two HTTPS `GET`s per poll to
+  `dataportal-api.nordpoolgroup.com` (the Nord Pool Data Portal), one for today
+  and one for tomorrow. Nothing else is contacted, no telemetry, no analytics,
+  no accounts, no API keys, no credentials.
+- **Read-only against the network.** Both requests are unauthenticated `GET`s.
+  The plugin never posts, uploads, or writes anything remote.
+- **Writes only its own config.** `settings-write.sh` writes
+  `~/.config/nordpool-widget/config.json` and nothing else. Writes are atomic
+  (`mktemp` + `mv`) and restricted to a whitelist of known keys, so a typo in the
+  QML cannot corrupt the file.
+- **Poll rate.** The default is one poll per 15 minutes, and the helper re-polls
+  at the top of each hour so the displayed hour price is never stale. The
+  interval has a floor of 60 seconds, and 900 is the recommended value.
+
+The two shell scripts are plain `sh`/`bash` and can be read in full before you
+install anything — `nordpool-watch.sh` is the only file that performs I/O
+beyond the plugin folder.
+
 ## Troubleshooting
 
 **The pill shows `n/a` or `…`.** Check the tooltip. `Nord Pool request failed`
-means the request itself failed — confirm `curl -sS "https://dataportal-api.nordpoolgroup.com/api/DayAheadPrices?date=$(date +%F)&market=DayAhead&deliveryArea=NO5&currency=NOK" | jq .areaAverages`
+means the request itself failed — confirm
+`curl -sS "https://dataportal-api.nordpoolgroup.com/api/DayAheadPrices?date=$(date +%F)&market=DayAhead&deliveryArea=NO5&currency=NOK" | jq .areaAverages`
 works. `no prices for today` means the endpoint answered but the day is empty.
 
 **"I morgen" says it is not published yet.** That is correct before roughly
@@ -164,7 +214,7 @@ spot prices excluding VAT.
 
 **Prices stopped updating.** Run the helper by hand to see what it says:
 
-```bash
+```sh
 sh ~/.config/omarchy/plugins/io.github.katla50.nordpool-widget/nordpool-watch.sh \
    ~/.config/nordpool-widget
 ```
@@ -173,9 +223,14 @@ It prints a JSON line per poll and loops forever — Ctrl-C to stop.
 
 **QML errors after an edit.** `omarchy restart shell`, then read the log:
 
-```bash
+```sh
 qs log -p /usr/share/omarchy/shell --tail 200 | grep nordpool-widget
 ```
+
+**The panel opens once but not again.** Forward `opened`, `open()`, `close()`
+and `closeForPopoutSwitch()` from `BarWidget.qml` to the loaded `Panel.qml`;
+`BarWidget.qml` does this in `injectPanel()`. If you edit the loaders, keep the
+`Qt.callLater(root.injectPanel)` call after `onLoaded`.
 
 ## Data source and credits
 
@@ -184,6 +239,16 @@ Prices come from the Nord Pool Data Portal
 Home Assistant [nordpool](https://github.com/custom-components/nordpool)
 integration uses. Area codes follow the
 [Nord Pool region map](https://data.nordpoolgroup.com/map).
+
+The bar-widget and panel scaffolding — the `opened`/`open()`/`close()`/
+`toggle()`/`closeForPopoutSwitch()` forwarding, the `Loader` pair, and the
+`Panel` + `KeyboardPanel` + `PanelKeyCatcher` structure — follows the bar-widget
+pattern published in Omarchy's own plugin development guide and the runtime
+contract of the built-in bar widgets, rather than being invented here. That
+guide's example code is Omarchy's, which is why Omarchy's copyright appears in
+[LICENSE](LICENSE) alongside this plugin's own. Everything specific to
+electricity prices — the Nord Pool fetching and aggregation, the tariff maths,
+the chart, the steppers and the settings panel — is this plugin's own code.
 
 ## License
 
