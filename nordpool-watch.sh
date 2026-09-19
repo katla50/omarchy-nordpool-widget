@@ -24,6 +24,10 @@ API="https://dataportal-api.nordpoolgroup.com/api/DayAheadPrices"
 CONFIG_FILE="$CONFIG_DIR/config.json"
 USER_AGENT="io.github.katla50.nordpool-widget/1.0 (+https://github.com/katla50/omarchy-nordpool-widget)"
 SLEEP_SLICE=5
+# Hard cap on an API response. A real DayAheadPrices day is well under 100 KB;
+# anything larger is a broken or hostile upstream and must not be allowed to
+# stream unbounded data into this process every poll.
+MAX_RESPONSE_BYTES=$((256 * 1024))
 
 mkdir -p "$CONFIG_DIR"
 TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/nordpool-widget.XXXXXX")" || exit 1
@@ -61,11 +65,31 @@ read_config() {
     ] | @tsv' "$CONFIG_FILE" 2>/dev/null
 }
 
-# One day of DayAheadPrices, or empty when the day is not published yet
-# (HTTP 204) / the request failed.
-fetch_day() { # $1 = YYYY-MM-DD
+# One day of DayAheadPrices, written directly to the file named in $3 (never
+# through a shell variable, so the response is never held whole in memory).
+# The download is hard-capped: head closes the pipe as soon as it holds
+# MAX_RESPONSE_BYTES+1 bytes, which aborts curl's read from the socket, and a
+# file that reaches the cap means the real response was larger still and is
+# rejected. An empty file means the day is not published yet (HTTP 204).
+# Exit codes: 0 ok, 1 request failed, 2 response exceeded the size cap,
+# 3 response was not a JSON object.
+fetch_day() { # $1 = YYYY-MM-DD, $2 = area, $3 = out file
+  local out="$3" curl_rc
+  : > "$out"
   curl -fsS --max-time 15 -H "User-Agent: $USER_AGENT" \
-    "$API?date=$1&market=DayAhead&deliveryArea=$2&currency=NOK" 2>/dev/null || true
+    "$API?date=$1&market=DayAhead&deliveryArea=$2&currency=NOK" 2>/dev/null \
+    | head -c "$((MAX_RESPONSE_BYTES + 1))" > "$out"
+  curl_rc=${PIPESTATUS[0]}
+  if (( $(stat -c %s "$out") > MAX_RESPONSE_BYTES )); then
+    : > "$out"   # drop the truncated payload; it is never parsed
+    return 2
+  fi
+  (( curl_rc == 0 )) || return 1
+  if [[ -s $out ]] && ! jq -e 'type == "object"' "$out" >/dev/null 2>&1; then
+    : > "$out"
+    return 3
+  fi
+  return 0
 }
 
 JQ_PROGRAM='
@@ -141,25 +165,35 @@ emit_error() {
 
 # Emit once per poll; returns 0 when prices were produced.
 poll_once() {
-  local area ig grid iv vatp cc poll unit today tomorrow t_doc m_doc
+  local area ig grid iv vatp cc poll unit today tomorrow
   read -r area ig grid iv vatp cc poll unit < <(read_config)
   [[ -n ${area:-} && -n ${grid:-} ]] || { area="NO5"; ig=1; grid=0; iv=0; vatp=0; cc=3; poll=900; unit="ore"; }
 
   today="$(date +%F)"
   tomorrow="$(date -d 'tomorrow' +%F 2>/dev/null || true)"
 
-  t_doc="$(fetch_day "$today" "$area")"
-  if [[ -z ${t_doc:-} ]]; then
-    emit_error "Nord Pool request failed (area $area)"
-    return 1
-  fi
-  m_doc=""
+  local t_file="$TMP_DIR/today.json" m_file="$TMP_DIR/tomorrow.json"
+  : > "$m_file"
+
+  local rc
+  fetch_day "$today" "$area" "$t_file"; rc=$?
+  case $rc in
+    0) ;;
+    1) emit_error "Nord Pool request failed (area $area)"; return 1 ;;
+    2) emit_error "Nord Pool response exceeded the $MAX_RESPONSE_BYTES byte cap (area $area)"; return 1 ;;
+    *) emit_error "Nord Pool response was not valid JSON (area $area)"; return 1 ;;
+  esac
+
   if [[ -n ${tomorrow:-} ]]; then
-    m_doc="$(fetch_day "$tomorrow" "$area")"
+    # Tomorrow's failure modes are non-fatal: an oversized/garbage second
+    # fetch must not take out today's good data.
+    fetch_day "$tomorrow" "$area" "$m_file" || : > "$m_file"
   fi
 
-  printf '%s' "${t_doc:-null}" > "$TMP_DIR/today.json"
-  printf '%s' "${m_doc:-null}" > "$TMP_DIR/tomorrow.json"
+  # Both inputs were validated as JSON objects (or empty) in fetch_day above;
+  # never emit anything else to jq.
+  [[ -s $t_file ]] || printf 'null' > "$t_file"
+  [[ -s $m_file ]] || printf 'null' > "$m_file"
 
   jq -cn \
     --slurpfile t "$TMP_DIR/today.json" \
